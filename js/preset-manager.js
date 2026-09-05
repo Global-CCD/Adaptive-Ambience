@@ -4,11 +4,36 @@
 // =============================================
 
 const PresetManager = {
+  MAX_PRESETS: 50, // MI-009: Limit to 50 presets
+
   // =============================================
-  // SAVE PRESET
+  // SAVE PRESET (MA-002: Validation)
   // =============================================
   savePreset(name, state) {
     try {
+      // MA-002: Validate preset data
+      if (typeof state.volume !== 'number' || state.volume < 0 || state.volume > 1) {
+        ErrorHandler.showError('Invalid volume value (must be 0-1).');
+        return false;
+      }
+
+      if (!['white', 'pink', 'brown'].includes(state.noiseType)) {
+        ErrorHandler.showError('Invalid noise type.');
+        return false;
+      }
+
+      if (typeof state.enableIR !== 'boolean') {
+        ErrorHandler.showError('Invalid IR setting.');
+        return false;
+      }
+
+      // MI-009: Check preset limit
+      const presets = this.getPresets();
+      if (presets.length >= this.MAX_PRESETS) {
+        ErrorHandler.showError(`Maximum ${this.MAX_PRESETS} presets allowed.`);
+        return false;
+      }
+
       const preset = {
         name,
         volume: state.volume,
@@ -18,7 +43,6 @@ const PresetManager = {
         createdAt: new Date().toISOString()
       };
 
-      const presets = this.getPresets();
       presets.push(preset);
       localStorage.setItem('adaptiveAmbiencePresets', JSON.stringify(presets));
       this.loadPresets();
@@ -42,8 +66,9 @@ const PresetManager = {
       select.remove(1);
     }
 
-    // Add presets to dropdown
-    presets.forEach(preset => {
+    // Add presets to dropdown (sorted by date, newest first)
+    presets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+           .forEach(preset => {
       const option = document.createElement('option');
       option.value = preset.name;
       option.textContent = `${preset.name} (${new Date(preset.createdAt).toLocaleDateString()})`;
@@ -60,6 +85,12 @@ const PresetManager = {
 
     if (!preset) {
       ErrorHandler.showError(`Preset "${name}" not found.`);
+      return false;
+    }
+
+    // Validate preset data (MA-002)
+    if (typeof preset.volume !== 'number' || preset.volume < 0 || preset.volume > 1) {
+      ErrorHandler.showError(`Preset "${name}" has invalid volume.`);
       return false;
     }
 
@@ -148,13 +179,26 @@ const PresetManager = {
       const text = await file.text();
       const preset = JSON.parse(text);
 
-      // Validate preset
+      // Validate preset (MA-002)
       if (!preset.name || typeof preset.volume === 'undefined') {
         throw new Error('Invalid preset file.');
       }
 
-      // Save the preset
+      if (typeof preset.volume !== 'number' || preset.volume < 0 || preset.volume > 1) {
+        throw new Error('Invalid volume value in preset.');
+      }
+
+      if (!['white', 'pink', 'brown'].includes(preset.noiseType)) {
+        throw new Error('Invalid noise type in preset.');
+      }
+
+      // Check preset limit (MI-009)
       const presets = this.getPresets();
+      if (presets.length >= this.MAX_PRESETS) {
+        throw new Error(`Maximum ${this.MAX_PRESETS} presets allowed.`);
+      }
+
+      // Save the preset
       presets.push(preset);
       localStorage.setItem('adaptiveAmbiencePresets', JSON.stringify(presets));
 
