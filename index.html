@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adaptive Ambience</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Adaptive Ambience</h1>
+    <div class="controls">
+      <button id="startMic">🎤 Start Microphone</button>
+      <button id="stopMic">⏹️ Stop</button>
+      <div class="toggle">
+        <label>IR Convolution: <input type="checkbox" id="enableIR"></label>
+        <input type="file" id="irFile" accept=".wav">
+      </div>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5">
+    </div>
+    <div class="visualizers">
+      <canvas id="spectrum" width="600" height="200"></canvas>
+      <canvas id="vuMeter" width="600" height="50"></canvas>
+    </div>
+    <div class="presets">
+      <button id="savePreset">💾 Save Preset</button>
+      <select id="loadPreset"></select>
+    </div>
+  </div>
+  <audio id="audioOutput" hidden></audio>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
