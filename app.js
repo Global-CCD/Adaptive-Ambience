@@ -1,8 +1,9 @@
 // =============================================
 // Adaptive Ambience - Main Application
+// Implements ANC Inverse + IR Convolution
 // =============================================
 
-// State
+// State Management
 const state = {
   audioContext: null,
   mediaStream: null,
@@ -36,56 +37,48 @@ const elements = {
   spectrum: document.getElementById('spectrum'),
   vuMeter: document.getElementById('vuMeter'),
   statusMessage: document.getElementById('statusMessage'),
-  audioOutput: document.getElementById('audioOutput')
+  audioOutput: document.getElementById('audioOutput'),
+  loadPreset: document.getElementById('loadPreset')
 };
 
-// Initialize
+// =============================================
+// INITIALIZATION
+// =============================================
 async function init() {
   try {
-    // Check for Web Audio API support
+    // Check Web Audio API support
     if (!window.AudioContext && !window.webkitAudioContext) {
-      throw new Error('Web Audio API not supported in this browser.');
+      throw new Error('Web Audio API not supported.');
     }
 
     // Create AudioContext
     state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Load Worklets
-    await loadWorklets();
+    // Load AudioWorklet
+    await state.audioContext.audioWorklet.addModule('audio/masking-generator-worklet.js');
 
-    // Setup event listeners
+    // Setup UI
     setupEventListeners();
-
-    // Initialize visualizers
     Visualizer.init(elements.spectrum, elements.vuMeter, state);
 
     // Load presets
     PresetManager.loadPresets();
 
-    updateStatus('Ready to start. Click "Start Microphone" to begin.');
+    updateStatus('Ready. Click "Start Microphone" to begin.');
   } catch (error) {
-    ErrorHandler.showError(`Initialization failed: ${error.message}`);
+    ErrorHandler.showError(`Init failed: ${error.message}`);
   }
 }
 
-// Load AudioWorklet modules
-async function loadWorklets() {
-  try {
-    await state.audioContext.audioWorklet.addModule('audio/masking-generator-worklet.js');
-    // AnalyzerWorklet not needed - using main thread AnalyserNode
-  } catch (error) {
-    ErrorHandler.showError(`Failed to load AudioWorklet: ${error.message}`);
-    throw error;
-  }
-}
-
-// Setup event listeners
+// =============================================
+// EVENT LISTENERS
+// =============================================
 function setupEventListeners() {
-  // Microphone controls
+  // Microphone Controls
   elements.startMic.addEventListener('click', startMicrophone);
   elements.stopMic.addEventListener('click', stopMicrophone);
 
-  // Volume control
+  // Volume
   elements.volume.addEventListener('input', (e) => {
     state.volume = parseFloat(e.target.value);
     elements.volumeValue.textContent = `${Math.round(state.volume * 100)}%`;
@@ -97,17 +90,18 @@ function setupEventListeners() {
     }
   });
 
-  // IR Convolution toggle
+  // IR Convolution Toggle
   elements.enableIR.addEventListener('change', (e) => {
     state.enableIR = e.target.checked;
     elements.irFile.disabled = !state.enableIR;
     updateIRRouting();
   });
 
-  // IR File upload
+  // IR File Upload
   elements.irFile.addEventListener('change', handleIRFileUpload);
+  document.querySelector('label[for="irFile"]').addEventListener('click', () => elements.irFile.click());
 
-  // Noise type selection
+  // Noise Type
   elements.noiseType.addEventListener('change', (e) => {
     state.noiseType = e.target.value;
     if (state.maskingNode) {
@@ -118,35 +112,26 @@ function setupEventListeners() {
     }
   });
 
-  // Preset controls
+  // Presets
   document.getElementById('savePreset').addEventListener('click', () => {
-    const name = document.getElementById('presetName').value.trim() || 'Unnamed Preset';
+    const name = document.getElementById('presetName').value.trim() || `Preset_${Date.now()}`;
     PresetManager.savePreset(name, state);
     document.getElementById('presetName').value = '';
   });
 
-  document.getElementById('loadPreset').addEventListener('change', (e) => {
-    if (e.target.value) {
-      PresetManager.loadPreset(e.target.value, state);
-      updateUIFromState();
-    }
+  elements.loadPreset.addEventListener('change', (e) => {
+    if (e.target.value) PresetManager.loadPreset(e.target.value, state);
   });
 
   document.getElementById('deletePreset').addEventListener('click', () => {
-    const select = document.getElementById('loadPreset');
-    if (select.value) {
-      PresetManager.deletePreset(select.value);
-      select.value = '';
+    if (elements.loadPreset.value) {
+      PresetManager.deletePreset(elements.loadPreset.value);
+      elements.loadPreset.value = '';
     }
   });
 
   document.getElementById('exportPreset').addEventListener('click', () => {
-    const select = document.getElementById('loadPreset');
-    if (select.value) {
-      PresetManager.exportPreset(select.value);
-    } else {
-      ErrorHandler.showError('Please select a preset to export.');
-    }
+    if (elements.loadPreset.value) PresetManager.exportPreset(elements.loadPreset.value);
   });
 
   document.getElementById('importPresetBtn').addEventListener('click', () => {
@@ -154,32 +139,38 @@ function setupEventListeners() {
   });
 
   document.getElementById('importPreset').addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      PresetManager.importPreset(e.target.files[0], state);
-      updateUIFromState();
-    }
+    if (e.target.files[0]) PresetManager.importPreset(e.target.files[0], state);
     e.target.value = '';
   });
 
   document.getElementById('closeToast').addEventListener('click', ErrorHandler.hideError);
 }
 
-// Start microphone
+// =============================================
+// MICROPHONE HANDLING
+// =============================================
 async function startMicrophone() {
-  try {
-    if (state.isRunning) return;
+  if (state.isRunning) return;
 
-    // Request microphone access
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  try {
+    // Request mic access
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+
     state.mediaStream = stream;
     state.mediaStreamSource = state.audioContext.createMediaStreamSource(stream);
 
-    // Create AnalyserNode for FFT
+    // Setup AnalyserNode for FFT
     state.analyserNode = state.audioContext.createAnalyser();
     state.analyserNode.fftSize = 2048;
     state.mediaStreamSource.connect(state.analyserNode);
 
-    // Create MaskingGeneratorWorklet
+    // Setup MaskingGeneratorWorklet
     state.maskingNode = new AudioWorkletNode(
       state.audioContext,
       'masking-generator-worklet'
@@ -189,7 +180,7 @@ async function startMicrophone() {
     state.mediaStreamSource.connect(state.maskingNode);
     state.maskingNode.connect(state.audioContext.destination);
 
-    // Start FFT analysis loop
+    // Start FFT analysis
     startFFTAnalysis();
 
     // Update state
@@ -198,7 +189,7 @@ async function startMicrophone() {
     elements.stopMic.disabled = false;
     elements.irFile.disabled = !state.enableIR;
 
-    // Send initial params to masking generator
+    // Send initial params
     state.maskingNode.port.postMessage({
       bands: Array(32).fill(0).map((_, i) => ({ freq: i * 200, amp: 0 })),
       gain: state.volume,
@@ -206,25 +197,24 @@ async function startMicrophone() {
     });
 
     updateStatus('Microphone active. Adaptive masking enabled.');
+    Visualizer.startVUMeter();
   } catch (error) {
-    ErrorHandler.showError(`Microphone error: ${error.message}`);
-    // Fallback to synthetic noise
-    startSyntheticNoise();
+    ErrorHandler.showError(`Mic error: ${error.message}`);
+    startSyntheticNoise(); // Fallback
   }
 }
 
-// Fallback to synthetic noise if mic fails
 function startSyntheticNoise() {
-  try {
-    if (state.isRunning) return;
+  if (state.isRunning) return;
 
-    // Create a silent source (we'll generate noise in the worklet)
+  try {
+    // Create silent oscillator (we generate noise in Worklet)
     const oscillator = state.audioContext.createOscillator();
     oscillator.type = 'sine';
-    oscillator.frequency.value = 0; // Silent
+    oscillator.frequency.value = 0;
     oscillator.start();
 
-    // Create MaskingGeneratorWorklet
+    // Setup MaskingGeneratorWorklet
     state.maskingNode = new AudioWorkletNode(
       state.audioContext,
       'masking-generator-worklet'
@@ -234,107 +224,96 @@ function startSyntheticNoise() {
     oscillator.connect(state.maskingNode);
     state.maskingNode.connect(state.audioContext.destination);
 
-    // Send params (no FFT data, just generate noise)
+    // Send params (no FFT data)
     state.maskingNode.port.postMessage({
       bands: [],
       gain: state.volume,
       noiseType: state.noiseType
     });
 
-    // Update state
     state.isRunning = true;
     elements.startMic.disabled = true;
     elements.stopMic.disabled = false;
-    updateStatus('Using synthetic noise (microphone unavailable).');
+    updateStatus('Using synthetic noise (mic unavailable).');
+    Visualizer.startVUMeter();
   } catch (error) {
-    ErrorHandler.showError(`Failed to start synthetic noise: ${error.message}`);
+    ErrorHandler.showError(`Synthetic noise failed: ${error.message}`);
   }
 }
 
-// Stop microphone
 function stopMicrophone() {
   if (!state.isRunning) return;
 
-  // Stop all nodes
+  // Stop all audio nodes
   if (state.mediaStream) {
     state.mediaStream.getTracks().forEach(track => track.stop());
     state.mediaStream = null;
   }
 
-  if (state.mediaStreamSource) {
-    state.mediaStreamSource.disconnect();
-    state.mediaStreamSource = null;
-  }
+  [state.mediaStreamSource, state.analyserNode, state.maskingNode, state.convolverNode]
+    .forEach(node => node && node.disconnect());
 
-  if (state.analyserNode) {
-    state.analyserNode.disconnect();
-    state.analyserNode = null;
-  }
+  state.mediaStreamSource = null;
+  state.analyserNode = null;
+  state.maskingNode = null;
+  state.convolverNode = null;
 
-  if (state.maskingNode) {
-    state.maskingNode.disconnect();
-    state.maskingNode = null;
-  }
-
-  if (state.convolverNode) {
-    state.convolverNode.disconnect();
-    state.convolverNode = null;
-  }
-
-  // Reset state
   state.isRunning = false;
   state.fftData = new Uint8Array(0);
   elements.startMic.disabled = false;
   elements.stopMic.disabled = true;
-  updateStatus('Stopped. Ready to start again.');
+  updateStatus('Stopped. Ready to restart.');
+  Visualizer.stopVUMeter();
 }
 
-// Start FFT analysis loop
+// =============================================
+// FFT ANALYSIS
+// =============================================
 function startFFTAnalysis() {
   const bufferLength = state.analyserNode.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
   function update() {
     if (!state.isRunning || !state.analyserNode) {
-      cancelAnimationFrame(update);
       return;
     }
 
     state.analyserNode.getByteFrequencyData(dataArray);
     state.fftData = dataArray;
 
-    // Downsample FFT data for masking params
+    // Downsample FFT data into 32 bands
     const bands = [];
     const bandCount = 32;
     const binSize = Math.floor(bufferLength / bandCount);
 
     for (let i = 0; i < bandCount; i++) {
       const start = i * binSize;
-      const end = start + binSize;
-      const avg = dataArray.slice(start, end).reduce((a, b) => a + b, 0) / binSize;
+      const end = Math.min(start + binSize, bufferLength);
+      const slice = dataArray.slice(start, end);
+      const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
       bands.push({
         freq: (i * state.audioContext.sampleRate) / state.analyserNode.fftSize,
-        amp: avg / 255
+        amp: avg / 255 // Normalize to [0, 1]
       });
     }
 
     // Update masking params
     state.maskingParams = { bands, gain: state.volume, noiseType: state.noiseType };
-
     if (state.maskingNode) {
       state.maskingNode.port.postMessage(state.maskingParams);
     }
 
     // Update visualizer
     Visualizer.updateSpectrum(dataArray);
-
     requestAnimationFrame(update);
   }
 
   update();
 }
 
-// Handle IR file upload
+// =============================================
+// IR CONVOLUTION
+// =============================================
 async function handleIRFileUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -342,15 +321,14 @@ async function handleIRFileUpload(e) {
   try {
     const arrayBuffer = await file.arrayBuffer();
     state.irBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
-    elements.irStatus.textContent = `IR loaded: ${file.name}`;
+    elements.irStatus.textContent = `IR: ${file.name}`;
     updateIRRouting();
   } catch (error) {
-    ErrorHandler.showError(`Failed to load IR file: ${error.message}`);
+    ErrorHandler.showError(`IR load failed: ${error.message}`);
     elements.irStatus.textContent = 'IR load failed';
   }
 }
 
-// Update IR routing
 function updateIRRouting() {
   if (!state.isRunning || !state.maskingNode) return;
 
@@ -369,27 +347,26 @@ function updateIRRouting() {
     updateStatus('IR convolution enabled.');
   } else {
     state.maskingNode.connect(state.audioContext.destination);
-    updateStatus(state.enableIR ? 'IR convolution disabled (no IR loaded).' : 'IR convolution disabled.');
+    updateStatus(state.enableIR ? 'IR disabled (no file).' : 'IR convolution disabled.');
   }
 }
 
-// Update UI from state
+// =============================================
+// UTILITIES
+// =============================================
+function updateStatus(message) {
+  elements.statusMessage.textContent = message;
+}
+
 function updateUIFromState() {
   elements.volume.value = state.volume;
   elements.volumeValue.textContent = `${Math.round(state.volume * 100)}%`;
   elements.enableIR.checked = state.enableIR;
   elements.noiseType.value = state.noiseType;
   elements.irFile.disabled = !state.enableIR;
-
-  if (state.enableIR && !state.irBuffer) {
-    elements.irStatus.textContent = 'No IR loaded';
-  }
 }
 
-// Update status message
-function updateStatus(message) {
-  elements.statusMessage.textContent = message;
-}
-
-// Initialize the app
+// =============================================
+// INITIALIZE APP
+// =============================================
 init();
