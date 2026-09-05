@@ -8,26 +8,83 @@
 </head>
 <body>
   <div class="container">
-    <h1>Adaptive Ambience</h1>
+    <header>
+      <h1>🎧 Adaptive Ambience</h1>
+      <p>ANC Inverse + IR Convolution for Multi-Room Ambience</p>
+    </header>
+
     <div class="controls">
-      <button id="startMic">🎤 Start Microphone</button>
-      <button id="stopMic">⏹️ Stop</button>
-      <div class="toggle">
-        <label>IR Convolution: <input type="checkbox" id="enableIR"></label>
-        <input type="file" id="irFile" accept=".wav">
+      <div class="control-group">
+        <button id="startMic" class="btn btn-primary">🎤 Start Microphone</button>
+        <button id="stopMic" class="btn btn-secondary" disabled>⏹️ Stop</button>
       </div>
-      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5">
+
+      <div class="control-group">
+        <label for="volume">Masking Volume:</label>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.3">
+        <span id="volumeValue">30%</span>
+      </div>
+
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="enableIR">
+          Enable IR Convolution
+        </label>
+        <input type="file" id="irFile" accept=".wav" disabled>
+        <span id="irStatus">No IR loaded</span>
+      </div>
+
+      <div class="control-group">
+        <label for="noiseType">Noise Type:</label>
+        <select id="noiseType">
+          <option value="white">White Noise</option>
+          <option value="pink" selected>Pink Noise</option>
+          <option value="brown">Brown Noise</option>
+        </select>
+      </div>
     </div>
+
     <div class="visualizers">
-      <canvas id="spectrum" width="600" height="200"></canvas>
-      <canvas id="vuMeter" width="600" height="50"></canvas>
+      <div class="visualizer">
+        <h3>Microphone Spectrum</h3>
+        <canvas id="spectrum" width="800" height="200"></canvas>
+      </div>
+      <div class="visualizer">
+        <h3>Output VU Meter</h3>
+        <canvas id="vuMeter" width="800" height="50"></canvas>
+      </div>
     </div>
+
     <div class="presets">
-      <button id="savePreset">💾 Save Preset</button>
-      <select id="loadPreset"></select>
+      <h3>Presets</h3>
+      <div class="preset-controls">
+        <input type="text" id="presetName" placeholder="Preset Name">
+        <button id="savePreset" class="btn btn-small">💾 Save</button>
+        <select id="loadPreset">
+          <option value="">-- Load Preset --</option>
+        </select>
+        <button id="deletePreset" class="btn btn-small btn-danger">🗑️ Delete</button>
+        <button id="exportPreset" class="btn btn-small">📤 Export</button>
+        <input type="file" id="importPreset" accept=".json" hidden>
+        <button id="importPresetBtn" class="btn btn-small">📥 Import</button>
+      </div>
+    </div>
+
+    <div class="status">
+      <p id="statusMessage">Ready to start.</p>
     </div>
   </div>
+
   <audio id="audioOutput" hidden></audio>
+
+  <div id="errorToast" class="toast" hidden>
+    <span id="errorMessage"></span>
+    <button id="closeToast">×</button>
+  </div>
+
+  <script src="js/error-handler.js" type="module"></script>
+  <script src="js/preset-manager.js" type="module"></script>
+  <script src="js/visualizer.js" type="module"></script>
   <script src="app.js" type="module"></script>
 </body>
 </html>
