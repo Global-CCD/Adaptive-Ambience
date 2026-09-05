@@ -18,16 +18,26 @@ class MaskingGeneratorWorklet extends AudioWorkletProcessor {
     // Brown noise filter state
     this.brownValue = 0;
 
-    // Default params
+    // MI-007: Phase randomization per band
+    this.phaseOffsets = new Float32Array(32).map(() => Math.random() * 2 * Math.PI);
+
+    // CR-004: Initialize lastParams to avoid null reference
     this.lastParams = {
-      bands: [],
+      bands: Array(32).fill(0).map((_, i) => ({ freq: i * 200, amp: 0 })),
       gain: 0.3,
       noiseType: 'pink'
     };
 
     // Listen for messages from main thread
     this.port.onmessage = (e) => {
-      this.lastParams = e.data;
+      if (e.data) {
+        this.lastParams = e.data;
+        // MI-007: Update phase offsets if bands change
+        if (e.data.bands && e.data.bands.length !== this.phaseOffsets.length) {
+          this.phaseOffsets = new Float32Array(e.data.bands.length)
+            .map(() => Math.random() * 2 * Math.PI);
+        }
+      }
     };
   }
 
@@ -57,29 +67,29 @@ class MaskingGeneratorWorklet extends AudioWorkletProcessor {
   }
 
   // =============================================
-  // ANC INVERSE: Spectral Shaping
+  // ANC INVERSE: Spectral Shaping (MA-005: Improved)
   // =============================================
   applySpectralShaping(sample, index, channelData) {
     const { bands, gain } = this.lastParams;
 
     // If no bands, just apply gain
-    if (bands.length === 0) {
+    if (!bands || bands.length === 0) {
       return sample * gain;
     }
 
-    // Map sample index to frequency bin
+    // MA-005: Use frequency-based band matching
     const sampleRate = this.sampleRate || 44100;
-    const fftSize = 2048; // Match main thread
+    const fftSize = 2048;
     const totalBins = channelData.length;
     const bin = Math.floor((index / totalBins) * fftSize);
+    const freq = (bin * sampleRate) / fftSize;
 
     // Find the closest frequency band
     let closestBand = bands[0];
-    let minDist = Math.abs(bin - 0);
+    let minDist = Math.abs(freq - bands[0].freq);
 
     for (let i = 1; i < bands.length; i++) {
-      const bandBin = Math.floor((bands[i].freq / sampleRate) * fftSize);
-      const dist = Math.abs(bin - bandBin);
+      const dist = Math.abs(freq - bands[i].freq);
       if (dist < minDist) {
         minDist = dist;
         closestBand = bands[i];
@@ -96,14 +106,13 @@ class MaskingGeneratorWorklet extends AudioWorkletProcessor {
   }
 
   // =============================================
-  // PHASE RANDOMIZATION (Prevents Feedback)
+  // PHASE RANDOMIZATION (MI-007: Per-Band)
   // =============================================
-  applyPhaseRandomization(sample) {
-    // Randomize phase every 100 samples
-    if (this.sampleCount % 100 === 0) {
-      this.phase = Math.random() * 2 * Math.PI;
+  applyPhaseRandomization(sample, bandIndex) {
+    // MI-007: Use per-band phase offsets
+    if (bandIndex >= 0 && bandIndex < this.phaseOffsets.length) {
+      return sample * Math.cos(this.phaseOffsets[bandIndex]);
     }
-    this.sampleCount = (this.sampleCount + 1) % 100;
     return sample * Math.cos(this.phase);
   }
 
@@ -138,9 +147,16 @@ class MaskingGeneratorWorklet extends AudioWorkletProcessor {
       sample = this.applySpectralShaping(sample, i, channelData);
 
       // Step 3: Apply phase randomization (prevents feedback)
-      sample = this.applyPhaseRandomization(sample);
+      // Find the closest band index for phase randomization
+      const sampleRate = this.sampleRate || 44100;
+      const fftSize = 2048;
+      const totalBins = channelData.length;
+      const bin = Math.floor((i / totalBins) * fftSize);
+      const bandIndex = Math.floor((bin / fftSize) * this.phaseOffsets.length);
 
-      // Step 4: Clamp to [-1, 1] to prevent distortion
+      sample = this.applyPhaseRandomization(sample, bandIndex);
+
+      // Step 4: Clamp to [-0.99, 0.99] to prevent distortion
       sample = Math.max(-0.99, Math.min(0.99, sample));
 
       channelData[i] = sample;
