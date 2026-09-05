@@ -11,7 +11,10 @@ const Visualizer = {
   state: null,
   animationId: null,
   vuMeterAnimationId: null,
+  spectrumAnimationId: null,
   lastVUTime: 0,
+  analyser: null, // For spectrum
+  outputAnalyser: null, // For VU meter (MI-010)
 
   // =============================================
   // INITIALIZE
@@ -42,6 +45,37 @@ const Visualizer = {
   },
 
   // =============================================
+  // START/STOP SPECTRUM ANALYZER
+  // =============================================
+  startSpectrum(analyser) {
+    if (this.spectrumAnimationId) {
+      cancelAnimationFrame(this.spectrumAnimationId);
+    }
+    this.analyser = analyser;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const update = () => {
+      if (!this.analyser || !this.spectrumCtx) {
+        this.spectrumAnimationId = null;
+        return;
+      }
+      this.analyser.getByteFrequencyData(dataArray);
+      this.drawSpectrum(dataArray);
+      this.spectrumAnimationId = requestAnimationFrame(update);
+    };
+    this.spectrumAnimationId = requestAnimationFrame(update);
+  },
+
+  stopSpectrum() {
+    if (this.spectrumAnimationId) {
+      cancelAnimationFrame(this.spectrumAnimationId);
+      this.spectrumAnimationId = null;
+      this.drawSpectrum([]);
+    }
+  },
+
+  // =============================================
   // UPDATE SPECTRUM ANALYZER
   // =============================================
   updateSpectrum(fftData) {
@@ -52,7 +86,8 @@ const Visualizer = {
     if (!this.spectrumCtx) return;
 
     const { width, height } = this.spectrumCanvas;
-    const barWidth = width / 128; // Fixed 128 bars for smoothness
+    const barCount = 128; // Fixed for consistency
+    const barWidth = width / barCount;
     const maxBarHeight = height;
 
     this.spectrumCtx.clearRect(0, 0, width, height);
@@ -65,10 +100,10 @@ const Visualizer = {
     this.spectrumCtx.fillRect(0, 0, width, height);
 
     // Draw bars
-    for (let i = 0; i < 128; i++) {
+    for (let i = 0; i < barCount; i++) {
       const barHeight = (fftData[i] || 0) / 255 * maxBarHeight;
       const x = i * barWidth;
-      const hue = i / 128 * 240 + 120; // Blue to green
+      const hue = i / barCount * 240 + 120; // Blue to green
 
       this.spectrumCtx.fillStyle = `hsl(${hue}, 100%, 60%)`;
       this.spectrumCtx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
@@ -76,32 +111,31 @@ const Visualizer = {
   },
 
   // =============================================
-  // START VU METER ANIMATION
+  // START/STOP VU METER (MI-010: Real Audio Levels)
   // =============================================
-  startVUMeter() {
+  startVUMeter(analyser) {
     if (this.vuMeterAnimationId) {
       cancelAnimationFrame(this.vuMeterAnimationId);
     }
+    this.outputAnalyser = analyser;
+    const dataArray = new Uint8Array(this.outputAnalyser.frequencyBinCount);
 
     const update = (timestamp) => {
-      // Calculate time delta for smoothing
-      const deltaTime = timestamp - this.lastVUTime;
-      this.lastVUTime = timestamp;
+      if (!this.outputAnalyser || !this.vuMeterCtx) {
+        this.vuMeterAnimationId = null;
+        return;
+      }
 
-      // In a real app, you'd analyze the output signal
-      // For this demo, we simulate based on masking params
-      const level = this.calculateVULevel();
+      // Get real-time level from analyser
+      this.outputAnalyser.getByteTimeDomainData(dataArray);
+      const level = this.calculateVULevel(dataArray);
       this.drawVUMeter(level);
 
       this.vuMeterAnimationId = requestAnimationFrame(update);
     };
-
     this.vuMeterAnimationId = requestAnimationFrame(update);
   },
 
-  // =============================================
-  // STOP VU METER
-  // =============================================
   stopVUMeter() {
     if (this.vuMeterAnimationId) {
       cancelAnimationFrame(this.vuMeterAnimationId);
@@ -111,17 +145,21 @@ const Visualizer = {
   },
 
   // =============================================
-  // CALCULATE SIMULATED VU LEVEL
+  // CALCULATE REAL VU LEVEL (MI-010)
   // =============================================
-  calculateVULevel() {
-    if (!this.state.isRunning) return 0;
+  calculateVULevel(dataArray) {
+    // CR-001: Null-safe check
+    if (!this.state?.isRunning || !dataArray) return 0;
 
-    // Simulate based on volume and masking activity
-    const baseLevel = this.state.volume * 0.7;
-    const randomVariation = Math.random() * 0.1;
-    const fftBoost = this.state.fftData.reduce((a, b) => a + b, 0) / this.state.fftData.length / 255 * 0.2;
-
-    return Math.min(1, baseLevel + randomVariation + fftBoost);
+    // Calculate RMS level from time-domain data
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const sample = (dataArray[i] - 128) / 128; // Convert to [-1, 1]
+      sum += sample * sample;
+    }
+    const rms = Math.sqrt(sum / dataArray.length);
+    const level = Math.min(1, rms * 2); // Scale to [0, 1]
+    return level;
   },
 
   // =============================================
