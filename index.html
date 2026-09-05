@@ -4,19 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Adaptive Ambience</title>
+  <link rel="icon" href="assets/favicon.ico" type="image/x-icon"> <!-- MI-001 -->
   <link rel="stylesheet" href="style.css">
+  <!-- MI-002: Loading spinner -->
+  <div id="loadingSpinner" class="spinner-overlay" hidden>
+    <div class="spinner"></div>
+  </div>
 </head>
 <body>
   <div class="container">
     <header>
       <h1>🎧 Adaptive Ambience</h1>
-      <p>ANC Inverse + IR Convolution for Multi-Room Ambience</p>
+      <p>ANC Inverse + IR Convolution for Multi-Room Immersion</p>
     </header>
 
     <div class="controls">
       <div class="control-group">
         <button id="startMic" class="btn btn-primary">🎤 Start Microphone</button>
         <button id="stopMic" class="btn btn-secondary" disabled>⏹️ Stop</button>
+        <!-- MI-008: Mic access spinner -->
+        <div id="micSpinner" class="spinner-inline" hidden></div>
       </div>
 
       <div class="control-group">
@@ -30,7 +37,8 @@
           <input type="checkbox" id="enableIR">
           Enable IR Convolution
         </label>
-        <input type="file" id="irFile" accept=".wav" disabled>
+        <label for="irFile" class="btn btn-small">📁 Upload IR (WAV)</label>
+        <input type="file" id="irFile" accept=".wav" hidden>
         <span id="irStatus">No IR loaded</span>
       </div>
 
@@ -46,32 +54,37 @@
 
     <div class="visualizers">
       <div class="visualizer">
-        <h3>Microphone Spectrum</h3>
-        <canvas id="spectrum" width="800" height="200"></canvas>
+        <h3>🎚️ Microphone Spectrum</h3>
+        <canvas id="spectrum"></canvas>
       </div>
       <div class="visualizer">
-        <h3>Output VU Meter</h3>
-        <canvas id="vuMeter" width="800" height="50"></canvas>
+        <h3>📊 Output VU Meter</h3>
+        <canvas id="vuMeter"></canvas>
       </div>
     </div>
 
     <div class="presets">
-      <h3>Presets</h3>
+      <h3>💾 Presets</h3>
       <div class="preset-controls">
         <input type="text" id="presetName" placeholder="Preset Name">
-        <button id="savePreset" class="btn btn-small">💾 Save</button>
+        <button id="savePreset" class="btn btn-small">Save</button>
         <select id="loadPreset">
           <option value="">-- Load Preset --</option>
         </select>
-        <button id="deletePreset" class="btn btn-small btn-danger">🗑️ Delete</button>
+        <button id="deletePreset" class="btn btn-small btn-danger">🗑️</button>
         <button id="exportPreset" class="btn btn-small">📤 Export</button>
-        <input type="file" id="importPreset" accept=".json" hidden>
         <button id="importPresetBtn" class="btn btn-small">📥 Import</button>
+        <input type="file" id="importPreset" accept=".json" hidden>
       </div>
     </div>
 
     <div class="status">
       <p id="statusMessage">Ready to start.</p>
+    </div>
+
+    <!-- MI-006: Unsupported browser message -->
+    <div id="unsupportedBrowser" class="error-banner" hidden>
+      <p>⚠️ Your browser does not support the Web Audio API. Please use Chrome, Firefox, Edge, or Safari.</p>
     </div>
   </div>
 
